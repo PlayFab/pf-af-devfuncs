@@ -120,7 +120,7 @@ namespace PlayFab.AzureFunctions
             }
 
             // Extract the request for the next stage from the get arguments response
-            FunctionExecutionContext entityRequest = new FunctionExecutionContext
+            FunctionExecutionContextInternal functionExecutionContext = new FunctionExecutionContextInternal
             {
                 EntityProfile = getProfileResponse.Profile,
                 FunctionArgument = execRequest.FunctionParameter,
@@ -276,11 +276,11 @@ namespace PlayFab.AzureFunctions
         public string TitleEntityToken;
     }
 
-    public class FunctionExecutionContext: FunctionExecutionContext<object> 
+    public class FunctionExecutionContextInternal: FunctionExecutionContextInternal<object> 
     {
     }
 
-    public class FunctionExecutionContext<T> : PlayFabRequestCommon
+    public class FunctionExecutionContextInternal<T> : PlayFabRequestCommon
     {
         public TitleAuthentication TitleAuthentication { get; set; }
         public EntityProfileBody EntityProfile { get; set; }
