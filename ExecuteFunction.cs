@@ -101,7 +101,7 @@ namespace PlayFab.AzureFunctions
 
             using (var client = new HttpClient())
             {
-                using (HttpResponseMessage titleEntityTokenResponseMessage = 
+                using (HttpResponseMessage titleEntityTokenResponseMessage =
                     await client.PostAsync(getEntityTokenUrl, titleEntityTokenRequestContent))
                 {
                     using (HttpContent titleEntityTokenResponseContent = titleEntityTokenResponseMessage.Content)
@@ -109,9 +109,9 @@ namespace PlayFab.AzureFunctions
                         string titleEntityTokenResponseString = await titleEntityTokenResponseContent.ReadAsStringAsync();
 
                         // Deserialize the http response
-                        titleEntityTokenResponseSuccess = 
+                        titleEntityTokenResponseSuccess =
                             PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<PlayFab.AuthenticationModels.GetEntityTokenResponse>>(titleEntityTokenResponseString);
-                        
+
                         // Extract the actual get title entity token header
                         titleEntityTokenResponse = titleEntityTokenResponseSuccess.data;
                         titleEntityToken = titleEntityTokenResponse.EntityToken;
@@ -146,7 +146,7 @@ namespace PlayFab.AzureFunctions
             };
 
             // Serialize the request to the azure function and add headers
-            var functionRequestContent = new StringContent(PlayFabSimpleJson.SerializeObject(entityRequest));
+            var functionRequestContent = new StringContent(PlayFabSimpleJson.SerializeObject(functionExecutionContext));
             functionRequestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
             var sw = new Stopwatch();
@@ -276,7 +276,7 @@ namespace PlayFab.AzureFunctions
         public string TitleEntityToken;
     }
 
-    public class FunctionExecutionContextInternal: FunctionExecutionContextInternal<object> 
+    public class FunctionExecutionContextInternal : FunctionExecutionContextInternal<object>
     {
     }
 
