@@ -124,11 +124,11 @@ namespace PlayFab.AzureFunctions
             {
                 EntityProfile = getProfileResponse.Profile,
                 FunctionArgument = execRequest.FunctionParameter,
-                TitleAuthentication = new TitleAuthentication
+                TitleAuthenticationContext = new TitleAuthenticationContext
                 {
-                    TitleId = Environment.GetEnvironmentVariable(TITLE_ID, EnvironmentVariableTarget.Process),
-                    TitleSecretKey = secretKey,
-                    TitleEntityToken = titleEntityToken
+                    Id = Environment.GetEnvironmentVariable(TITLE_ID, EnvironmentVariableTarget.Process),
+                    SecretKey = secretKey,
+                    EntityToken = titleEntityToken
                 }
             };
 
@@ -269,11 +269,11 @@ namespace PlayFab.AzureFunctions
         }
     }
 
-    public class TitleAuthentication
+    public class TitleAuthenticationContext
     {
-        public string TitleId;
-        public string TitleSecretKey;
-        public string TitleEntityToken;
+        public string Id;
+        public string SecretKey;
+        public string EntityToken;
     }
 
     public class FunctionExecutionContextInternal : FunctionExecutionContextInternal<object>
@@ -282,7 +282,7 @@ namespace PlayFab.AzureFunctions
 
     public class FunctionExecutionContextInternal<T> : PlayFabRequestCommon
     {
-        public TitleAuthentication TitleAuthentication { get; set; }
+        public TitleAuthenticationContext TitleAuthenticationContext { get; set; }
         public EntityProfileBody EntityProfile { get; set; }
         public T FunctionArgument { get; set; }
     }
