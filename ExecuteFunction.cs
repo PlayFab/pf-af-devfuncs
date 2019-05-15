@@ -1,8 +1,11 @@
 ﻿// Copyright (C) Microsoft Corporation. All rights reserved.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -12,7 +15,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Extensions.Logging;
-using PlayFab;
 using PlayFab.Internal;
 using PlayFab.Json;
 using PlayFab.ProfilesModels;
@@ -23,8 +25,7 @@ namespace PlayFab.AzureFunctions
     {
         private const string DEV_SECRET_KEY = "PLAYFAB_DEV_SECRET_KEY";
         private const string TITLE_ID = "PLAYFAB_TITLE_ID";
-        private const string VERTICAL_NAME = "PLAYFAB_VERTICAL_NAME";
-
+        private const string CLOUD_NAME = "PLAYFAB_CLOUD_NAME";
         /// <summary>
         /// A local implementation of the ExecuteFunction feature. Provides the ability to execute an Azure Function with a local URL with respect to the host
         /// of the application this function is running in.
@@ -37,13 +38,12 @@ namespace PlayFab.AzureFunctions
         public static async Task<HttpResponseMessage> Run(
             [HttpTrigger(AuthorizationLevel.Function, "post", Route = "CloudScript/ExecuteFunction")] HttpRequest request, ILogger log)
         {
-            // Extract the caller's entity token 
+            // Extract the caller's entity token
             string callerEntityToken = request.Headers["X-EntityToken"];
 
             // Extract the request body and deserialize
-            StreamReader reader = new StreamReader(request.Body);
-            string body = await reader.ReadToEndAsync();
-            ExecuteFunctionRequest execRequest = PlayFabSimpleJson.DeserializeObject<ExecuteFunctionRequest>(body);
+            string body = await DecompressHttpBody(request);
+            var execRequest = PlayFabSimpleJson.DeserializeObject<ExecuteFunctionRequest>(body);
 
             var getProfileUrl = GetServerApiUri("/Profile/GetProfile");
 
@@ -61,10 +61,10 @@ namespace PlayFab.AzureFunctions
             // Execute the get entity profile request
             using (var client = new HttpClient())
             {
-                using (HttpResponseMessage profileResponseMessage =
+                using (var profileResponseMessage =
                     await client.PostAsync(getProfileUrl, profileRequestContent))
                 {
-                    using (HttpContent profileResponseContent = profileResponseMessage.Content)
+                    using (var profileResponseContent = profileResponseMessage.Content)
                     {
                         string profileResponseString = await profileResponseContent.ReadAsStringAsync();
 
@@ -84,10 +84,10 @@ namespace PlayFab.AzureFunctions
                 throw new Exception($"Failed to get Entity Profile: code: {getProfileResponseSuccess?.code}");
             }
 
-            // FIND THE TITLE ENTITY TOKEN AND ATTACH TO REQUEST TO OUTBOUND TARGET FUNCTION
+            // Find the Title Entity Token and attach to outbound request to target function
             string titleEntityToken = null;
 
-            PlayFab.AuthenticationModels.GetEntityTokenRequest titleEntityTokenRequest = new PlayFab.AuthenticationModels.GetEntityTokenRequest();
+            var titleEntityTokenRequest = new AuthenticationModels.GetEntityTokenRequest();
 
             var getEntityTokenUrl = GetServerApiUri("/Authentication/GetEntityToken");
 
@@ -96,21 +96,21 @@ namespace PlayFab.AzureFunctions
             titleEntityTokenRequestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
             titleEntityTokenRequestContent.Headers.Add("X-SecretKey", secretKey);
 
-            PlayFabJsonSuccess<PlayFab.AuthenticationModels.GetEntityTokenResponse> titleEntityTokenResponseSuccess = null;
-            PlayFab.AuthenticationModels.GetEntityTokenResponse titleEntityTokenResponse = null;
+            PlayFabJsonSuccess<AuthenticationModels.GetEntityTokenResponse> titleEntityTokenResponseSuccess = null;
+            AuthenticationModels.GetEntityTokenResponse titleEntityTokenResponse = null;
 
             using (var client = new HttpClient())
             {
-                using (HttpResponseMessage titleEntityTokenResponseMessage =
+                using (var titleEntityTokenResponseMessage =
                     await client.PostAsync(getEntityTokenUrl, titleEntityTokenRequestContent))
                 {
-                    using (HttpContent titleEntityTokenResponseContent = titleEntityTokenResponseMessage.Content)
+                    using (var titleEntityTokenResponseContent = titleEntityTokenResponseMessage.Content)
                     {
                         string titleEntityTokenResponseString = await titleEntityTokenResponseContent.ReadAsStringAsync();
 
                         // Deserialize the http response
                         titleEntityTokenResponseSuccess =
-                            PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<PlayFab.AuthenticationModels.GetEntityTokenResponse>>(titleEntityTokenResponseString);
+                            PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<AuthenticationModels.GetEntityTokenResponse>>(titleEntityTokenResponseString);
 
                         // Extract the actual get title entity token header
                         titleEntityTokenResponse = titleEntityTokenResponseSuccess.data;
@@ -120,16 +120,15 @@ namespace PlayFab.AzureFunctions
             }
 
             // Extract the request for the next stage from the get arguments response
-            FunctionExecutionContextInternal functionExecutionContext = new FunctionExecutionContextInternal
+            var functionContext = new FunctionContextInternal
             {
-                EntityProfile = getProfileResponse.Profile,
-                FunctionArgument = execRequest.FunctionParameter,
+                CallerEntityProfile = getProfileResponse.Profile,
                 TitleAuthenticationContext = new TitleAuthenticationContext
                 {
                     Id = Environment.GetEnvironmentVariable(TITLE_ID, EnvironmentVariableTarget.Process),
-                    SecretKey = secretKey,
                     EntityToken = titleEntityToken
-                }
+                },
+                FunctionArgument = execRequest.FunctionParameter
             };
 
             // Assemble the target function's path in the current App
@@ -146,7 +145,7 @@ namespace PlayFab.AzureFunctions
             };
 
             // Serialize the request to the azure function and add headers
-            var functionRequestContent = new StringContent(PlayFabSimpleJson.SerializeObject(functionExecutionContext));
+            var functionRequestContent = new StringContent(PlayFabSimpleJson.SerializeObject(functionContext));
             functionRequestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
             var sw = new Stopwatch();
@@ -155,22 +154,20 @@ namespace PlayFab.AzureFunctions
             // Execute the local azure function
             using (var client = new HttpClient())
             {
-                using (HttpResponseMessage functionResponseMessage =
+                using (var functionResponseMessage =
                     await client.PostAsync(uriBuilder.Uri.AbsoluteUri, functionRequestContent))
                 {
                     sw.Stop();
                     double executionTime = sw.ElapsedMilliseconds;
 
                     // Extract the response content
-                    using (HttpContent functionResponseContent = functionResponseMessage.Content)
+                    using (var functionResponseContent = functionResponseMessage.Content)
                     {
-                        string functionResponseString = await functionResponseContent.ReadAsStringAsync();
-
                         // Prepare a response to reply back to client with and include function execution results
                         var functionResult = new ExecuteFunctionResult
                         {
                             FunctionName = execRequest.FunctionName,
-                            FunctionResult = PlayFabSimpleJson.DeserializeObject(functionResponseString),
+                            FunctionResult = await ExtractFunctionResult(functionResponseContent),
                             ExecutionTimeSeconds = executionTime,
                             FunctionResultTooLarge = false
                         };
@@ -184,14 +181,45 @@ namespace PlayFab.AzureFunctions
                         };
                         // Serialize the output and return it
                         var outputStr = PlayFabSimpleJson.SerializeObject(output);
+
                         return new HttpResponseMessage
                         {
-                            Content = new StringContent(outputStr, Encoding.UTF8, "application/json"),
+                            Content = new ByteArrayContent(CompressResponseBody(output, request)),
                             StatusCode = HttpStatusCode.OK
                         };
                     }
                 }
             }
+        }
+
+        private static async Task<object> ExtractFunctionResult(HttpContent content)
+        {
+            string responseContent = await content.ReadAsStringAsync();
+
+            if (!string.IsNullOrWhiteSpace(responseContent))
+            {
+                // JSON object or array
+                if (responseContent.StartsWith("{") || responseContent.StartsWith("["))
+                {
+                    return PlayFabSimpleJson.DeserializeObject(responseContent);
+                }
+                // JSON number
+                else if (float.TryParse(responseContent, out float f))
+                {
+                    return f;
+                }
+                // JSON true or false
+                else if (bool.TryParse(responseContent, out bool b))
+                {
+                    return b;
+                }
+                else // JSON string
+                {
+                    return responseContent;
+                }
+            }
+
+            return null;
         }
 
         private static string GetServerApiUri(string endpoint)
@@ -205,7 +233,7 @@ namespace PlayFab.AzureFunctions
                 sb.Append(title).Append(".");
             }
             // Append the vertical name if applicable
-            string vertical = Environment.GetEnvironmentVariable(VERTICAL_NAME, EnvironmentVariableTarget.Process);
+            string vertical = Environment.GetEnvironmentVariable(CLOUD_NAME, EnvironmentVariableTarget.Process);
             if (!string.IsNullOrEmpty(vertical))
             {
                 sb.Append(vertical).Append(".");
@@ -225,7 +253,7 @@ namespace PlayFab.AzureFunctions
 
         private static string ReadAllFileText(string filename)
         {
-            StringBuilder sb = new StringBuilder();
+            var sb = new StringBuilder();
 
             if (!File.Exists(filename))
             {
@@ -263,33 +291,126 @@ namespace PlayFab.AzureFunctions
                 hostFileContent = ReadAllFileText(currDirHostFile);
             }
 
-            HostJsonModel hostModel = PlayFabSimpleJson.DeserializeObject<HostJsonModel>(hostFileContent);
+            var hostModel = PlayFabSimpleJson.DeserializeObject<HostJsonModel>(hostFileContent);
 
             return hostModel?.extensions?.http?.routePrefix;
+        }
+
+        private static async Task<string> DecompressHttpBody(HttpRequest request)
+        {
+            string encoding = request.Headers["Content-Encoding"];
+
+            // Compression was not present and hence attempt to simply read out the body provided
+            if (string.IsNullOrWhiteSpace(encoding))
+            {
+                using (var reader = new StreamReader(request.Body))
+                {
+                    return await reader.ReadToEndAsync();
+                }
+            }
+            else if (!encoding.ToLower().Equals("gzip"))
+            {
+                // Only GZIP decompression supported
+                throw new Exception($"Unkown compression used on body. Content-Encoding header value: {encoding}. Expecting none or GZIP");
+            }
+
+            var responseBytes = StreamToBytes(request.Body);
+            // Attempt to decompress the GZIP compressed request body
+            using (Stream responseStream = new MemoryStream(responseBytes))
+            {
+                using (var gZipStream = new GZipStream(responseStream, CompressionMode.Decompress, false))
+                {
+                    byte[] buffer = new byte[4*1024];
+                    using (var output = new MemoryStream())
+                    {
+                        int read;
+                        while ((read = gZipStream.Read(buffer, 0, buffer.Length)) > 0)
+                        {
+                            output.Write(buffer, 0, read);
+                        }
+                        output.Seek(0, SeekOrigin.Begin);
+                        return await new StreamReader(output).ReadToEndAsync();
+                    }
+                }
+            }
+        }
+
+        private static byte[] CompressResponseBody(object responseObject, HttpRequest request)
+        {
+            string responseJson = PlayFabSimpleJson.SerializeObject(responseObject);
+            var responseBytes = Encoding.UTF8.GetBytes(responseJson);
+
+            // Get all accepted encodings,
+            string encodingsString = request.Headers["Accept-Encoding"];
+
+            // If client doesn't specify accepted encodings, assume identity and respond decompressed
+            if (string.IsNullOrEmpty(encodingsString))
+            {
+                return responseBytes;
+            }
+
+            List<string> encodings = encodingsString.Replace(" ", String.Empty).Split(',').ToList();
+            encodings.ForEach(encoding => encoding.ToLower());
+
+            // If client accepts identity explicitly, respond decompressed
+            if (encodings.Contains("identity", StringComparer.OrdinalIgnoreCase))
+            {
+                return responseBytes;
+            }
+
+            // If client accepts gzip, compress
+            if (encodings.Contains("gzip", StringComparer.OrdinalIgnoreCase))
+            {
+                using (var stream = new MemoryStream())
+                {
+                    using (var gZipStream = new GZipStream(stream, CompressionLevel.Fastest, false))
+                    {
+                        gZipStream.Write(responseBytes, 0, responseBytes.Length);
+                    }
+                    responseBytes = stream.ToArray();
+                }
+                return responseBytes;
+            }
+
+            // If neither identity or gzip, throw error: we support gzip only right now
+            throw new Exception($"Unknown compression requested for response. The \"Accept-Encoding\" haeder values was: ${encodingsString}. Only \"Identity\" and \"GZip\" are supported right now.");
+        }
+
+        private static byte[] StreamToBytes(Stream input)
+        {
+            byte[] buffer = new byte[4*1024];
+            using (var output = new MemoryStream())
+            {
+                int read;
+                while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    output.Write(buffer, 0, read);
+                }
+                return output.ToArray();
+            }
         }
     }
 
     public class TitleAuthenticationContext
     {
         public string Id;
-        public string SecretKey;
         public string EntityToken;
     }
 
-    public class FunctionExecutionContextInternal : FunctionExecutionContextInternal<object>
+    public class FunctionContextInternal : FunctionContextInternal<object>
     {
     }
 
-    public class FunctionExecutionContextInternal<T> : PlayFabRequestCommon
+    public class FunctionContextInternal<TFunctionArgument>
     {
         public TitleAuthenticationContext TitleAuthenticationContext { get; set; }
-        public EntityProfileBody EntityProfile { get; set; }
-        public T FunctionArgument { get; set; }
+        public EntityProfileBody CallerEntityProfile { get; set; }
+        public TFunctionArgument FunctionArgument { get; set; }
     }
 
     public class ExecuteFunctionRequest : PlayFabRequestCommon
     {
-        public EntityKey Entity { get; set; }
+        public ClientModels.EntityKey Entity { get; set; }
 
         public string FunctionName { get; set; }
 
