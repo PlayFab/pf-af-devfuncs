@@ -1,4 +1,4 @@
-﻿// Copyright (C) Microsoft Corporation. All rights reserved.
+// Copyright (C) Microsoft Corporation. All rights reserved.
 
 using System;
 using System.Collections.Generic;
@@ -151,7 +151,7 @@ namespace PlayFab.AzureFunctions
                 await httpClient.PostAsync(uriBuilder.Uri.AbsoluteUri, functionRequestContent))
             {
                 sw.Stop();
-                double executionTime = sw.ElapsedMilliseconds;
+                long executionTime = sw.ElapsedMilliseconds;
 
                 // Extract the response content
                 using (var functionResponseContent = functionResponseMessage.Content)
@@ -161,7 +161,7 @@ namespace PlayFab.AzureFunctions
                     {
                         FunctionName = execRequest.FunctionName,
                         FunctionResult = await ExtractFunctionResult(functionResponseContent),
-                        ExecutionTimeSeconds = executionTime,
+                        ExecutionTimeSeconds = (int) executionTime,
                         FunctionResultTooLarge = false
                     };
 
@@ -413,7 +413,7 @@ namespace PlayFab.AzureFunctions
 
     public class ExecuteFunctionResult : PlayFabResultCommon
     {
-        public double ExecutionTimeSeconds;
+        public int ExecutionTimeSeconds;
         public string FunctionName;
         public object FunctionResult;
         public bool? FunctionResultTooLarge;
