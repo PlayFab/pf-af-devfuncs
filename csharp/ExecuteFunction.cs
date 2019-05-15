@@ -161,7 +161,7 @@ namespace PlayFab.AzureFunctions
                     {
                         FunctionName = execRequest.FunctionName,
                         FunctionResult = await ExtractFunctionResult(functionResponseContent),
-                        ExecutionTimeSeconds = (int) executionTime,
+                        ExecutionTimeMilliseconds = (int) executionTime,
                         FunctionResultTooLarge = false
                     };
 
@@ -413,7 +413,7 @@ namespace PlayFab.AzureFunctions
 
     public class ExecuteFunctionResult : PlayFabResultCommon
     {
-        public int ExecutionTimeSeconds;
+        public int ExecutionTimeMilliseconds;
         public string FunctionName;
         public object FunctionResult;
         public bool? FunctionResultTooLarge;
