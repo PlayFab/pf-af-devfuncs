@@ -26,6 +26,7 @@ namespace PlayFab.AzureFunctions
         private const string DEV_SECRET_KEY = "PLAYFAB_DEV_SECRET_KEY";
         private const string TITLE_ID = "PLAYFAB_TITLE_ID";
         private const string CLOUD_NAME = "PLAYFAB_CLOUD_NAME";
+        private static readonly HttpClient httpClient = new HttpClient();
         /// <summary>
         /// A local implementation of the ExecuteFunction feature. Provides the ability to execute an Azure Function with a local URL with respect to the host
         /// of the application this function is running in.
@@ -59,22 +60,19 @@ namespace PlayFab.AzureFunctions
             GetEntityProfileResponse getProfileResponse = null;
 
             // Execute the get entity profile request
-            using (var client = new HttpClient())
+            using (var profileResponseMessage =
+                    await httpClient.PostAsync(getProfileUrl, profileRequestContent))
             {
-                using (var profileResponseMessage =
-                    await client.PostAsync(getProfileUrl, profileRequestContent))
+                using (var profileResponseContent = profileResponseMessage.Content)
                 {
-                    using (var profileResponseContent = profileResponseMessage.Content)
-                    {
-                        string profileResponseString = await profileResponseContent.ReadAsStringAsync();
+                    string profileResponseString = await profileResponseContent.ReadAsStringAsync();
 
-                        // Deserialize the http response
-                        getProfileResponseSuccess =
-                            PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<GetEntityProfileResponse>>(profileResponseString);
+                    // Deserialize the http response
+                    getProfileResponseSuccess =
+                        PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<GetEntityProfileResponse>>(profileResponseString);
 
-                        // Extract the actual get profile response from the deserialized http response
-                        getProfileResponse = getProfileResponseSuccess?.data;
-                    }
+                    // Extract the actual get profile response from the deserialized http response
+                    getProfileResponse = getProfileResponseSuccess?.data;
                 }
             }
 
@@ -99,23 +97,20 @@ namespace PlayFab.AzureFunctions
             PlayFabJsonSuccess<AuthenticationModels.GetEntityTokenResponse> titleEntityTokenResponseSuccess = null;
             AuthenticationModels.GetEntityTokenResponse titleEntityTokenResponse = null;
 
-            using (var client = new HttpClient())
+            using (var titleEntityTokenResponseMessage =
+                await httpClient.PostAsync(getEntityTokenUrl, titleEntityTokenRequestContent))
             {
-                using (var titleEntityTokenResponseMessage =
-                    await client.PostAsync(getEntityTokenUrl, titleEntityTokenRequestContent))
+                using (var titleEntityTokenResponseContent = titleEntityTokenResponseMessage.Content)
                 {
-                    using (var titleEntityTokenResponseContent = titleEntityTokenResponseMessage.Content)
-                    {
-                        string titleEntityTokenResponseString = await titleEntityTokenResponseContent.ReadAsStringAsync();
+                    string titleEntityTokenResponseString = await titleEntityTokenResponseContent.ReadAsStringAsync();
 
-                        // Deserialize the http response
-                        titleEntityTokenResponseSuccess =
-                            PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<AuthenticationModels.GetEntityTokenResponse>>(titleEntityTokenResponseString);
+                    // Deserialize the http response
+                    titleEntityTokenResponseSuccess =
+                        PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<AuthenticationModels.GetEntityTokenResponse>>(titleEntityTokenResponseString);
 
-                        // Extract the actual get title entity token header
-                        titleEntityTokenResponse = titleEntityTokenResponseSuccess.data;
-                        titleEntityToken = titleEntityTokenResponse.EntityToken;
-                    }
+                    // Extract the actual get title entity token header
+                    titleEntityTokenResponse = titleEntityTokenResponseSuccess.data;
+                    titleEntityToken = titleEntityTokenResponse.EntityToken;
                 }
             }
 
@@ -152,42 +147,39 @@ namespace PlayFab.AzureFunctions
             sw.Start();
 
             // Execute the local azure function
-            using (var client = new HttpClient())
+            using (var functionResponseMessage =
+                await httpClient.PostAsync(uriBuilder.Uri.AbsoluteUri, functionRequestContent))
             {
-                using (var functionResponseMessage =
-                    await client.PostAsync(uriBuilder.Uri.AbsoluteUri, functionRequestContent))
+                sw.Stop();
+                double executionTime = sw.ElapsedMilliseconds;
+
+                // Extract the response content
+                using (var functionResponseContent = functionResponseMessage.Content)
                 {
-                    sw.Stop();
-                    double executionTime = sw.ElapsedMilliseconds;
-
-                    // Extract the response content
-                    using (var functionResponseContent = functionResponseMessage.Content)
+                    // Prepare a response to reply back to client with and include function execution results
+                    var functionResult = new ExecuteFunctionResult
                     {
-                        // Prepare a response to reply back to client with and include function execution results
-                        var functionResult = new ExecuteFunctionResult
-                        {
-                            FunctionName = execRequest.FunctionName,
-                            FunctionResult = await ExtractFunctionResult(functionResponseContent),
-                            ExecutionTimeSeconds = executionTime,
-                            FunctionResultTooLarge = false
-                        };
+                        FunctionName = execRequest.FunctionName,
+                        FunctionResult = await ExtractFunctionResult(functionResponseContent),
+                        ExecutionTimeSeconds = executionTime,
+                        FunctionResultTooLarge = false
+                    };
 
-                        // Reply back to client with final results
-                        var output = new PlayFabJsonSuccess<ExecuteFunctionResult>
-                        {
-                            code = 200,
-                            status = "OK",
-                            data = functionResult
-                        };
-                        // Serialize the output and return it
-                        var outputStr = PlayFabSimpleJson.SerializeObject(output);
+                    // Reply back to client with final results
+                    var output = new PlayFabJsonSuccess<ExecuteFunctionResult>
+                    {
+                        code = 200,
+                        status = "OK",
+                        data = functionResult
+                    };
+                    // Serialize the output and return it
+                    var outputStr = PlayFabSimpleJson.SerializeObject(output);
 
-                        return new HttpResponseMessage
-                        {
-                            Content = new ByteArrayContent(CompressResponseBody(output, request)),
-                            StatusCode = HttpStatusCode.OK
-                        };
-                    }
+                    return new HttpResponseMessage
+                    {
+                        Content = new ByteArrayContent(CompressResponseBody(output, request)),
+                        StatusCode = HttpStatusCode.OK
+                    };
                 }
             }
         }
