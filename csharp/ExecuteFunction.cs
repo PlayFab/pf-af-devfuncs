@@ -25,7 +25,7 @@ namespace PlayFab.AzureFunctions
     {
         private const string DEV_SECRET_KEY = "PLAYFAB_DEV_SECRET_KEY";
         private const string TITLE_ID = "PLAYFAB_TITLE_ID";
-        private const string CLOUD_NAME = "PLAYFAB_CLOUD_NAME";
+        private const string VERTICAL_NAME = "PLAYFAB_VERTICAL_NAME";
         private static readonly HttpClient httpClient = new HttpClient();
         /// <summary>
         /// A local implementation of the ExecuteFunction feature. Provides the ability to execute an Azure Function with a local URL with respect to the host
@@ -225,7 +225,7 @@ namespace PlayFab.AzureFunctions
                 sb.Append(title).Append(".");
             }
             // Append the vertical name if applicable
-            string vertical = Environment.GetEnvironmentVariable(CLOUD_NAME, EnvironmentVariableTarget.Process);
+            string vertical = Environment.GetEnvironmentVariable(VERTICAL_NAME, EnvironmentVariableTarget.Process);
             if (!string.IsNullOrEmpty(vertical))
             {
                 sb.Append(vertical).Append(".");
