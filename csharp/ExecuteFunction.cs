@@ -370,6 +370,7 @@ namespace PlayFab.AzureFunctions
 
         private static byte[] StreamToBytes(Stream input)
         {
+            input.Seek(0, SeekOrigin.Begin);
             byte[] buffer = new byte[4*1024];
             using (var output = new MemoryStream())
             {
