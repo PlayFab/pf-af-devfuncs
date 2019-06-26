@@ -153,6 +153,11 @@ namespace PlayFab.AzureFunctions
                 sw.Stop();
                 long executionTime = sw.ElapsedMilliseconds;
 
+                if (!functionResponseMessage.IsSuccessStatusCode)
+                {
+                    throw new Exception($"An error occured while executing the target function locally: FunctionName: {execRequest.FunctionName}, HTTP Status Code: {functionResponseMessage.StatusCode}.");
+                }
+
                 // Extract the response content
                 using (var functionResponseContent = functionResponseMessage.Content)
                 {
