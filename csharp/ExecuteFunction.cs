@@ -21,7 +21,7 @@ using PlayFab.ProfilesModels;
 
 namespace PlayFab.AzureFunctions
 {
-    public static class ExecuteFunction
+    public static class LocalExecuteFunction
     {
         private const string DEV_SECRET_KEY = "PLAYFAB_DEV_SECRET_KEY";
         private const string TITLE_ID = "PLAYFAB_TITLE_ID";
@@ -36,7 +36,7 @@ namespace PlayFab.AzureFunctions
         /// <param name="log">A logger object</param>
         /// <returns>The function execution result(s)</returns>
         [FunctionName("ExecuteFunction")]
-        public static async Task<HttpResponseMessage> Run(
+        public static async Task<HttpResponseMessage> ExecuteFunction(
             [HttpTrigger(AuthorizationLevel.Function, "post", Route = "CloudScript/ExecuteFunction")] HttpRequest request, ILogger log)
         {
             // Extract the caller's entity token
@@ -46,109 +46,30 @@ namespace PlayFab.AzureFunctions
             string body = await DecompressHttpBody(request);
             var execRequest = PlayFabSimpleJson.DeserializeObject<ExecuteFunctionRequest>(body);
 
-            var getProfileUrl = GetServerApiUri("/Profile/GetProfile");
-
-            // Create the get entity profile request
-            var profileRequest = new GetEntityProfileRequest { };
-
-            // Prepare the request headers
-            var profileRequestContent = new StringContent(PlayFabSimpleJson.SerializeObject(profileRequest));
-            profileRequestContent.Headers.Add("X-EntityToken", callerEntityToken);
-            profileRequestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-
-            PlayFabJsonSuccess<GetEntityProfileResponse> getProfileResponseSuccess = null;
-            GetEntityProfileResponse getProfileResponse = null;
-
-            // Execute the get entity profile request
-            using (var profileResponseMessage =
-                    await httpClient.PostAsync(getProfileUrl, profileRequestContent))
-            {
-                using (var profileResponseContent = profileResponseMessage.Content)
-                {
-                    string profileResponseString = await profileResponseContent.ReadAsStringAsync();
-
-                    // Deserialize the http response
-                    getProfileResponseSuccess =
-                        PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<GetEntityProfileResponse>>(profileResponseString);
-
-                    // Extract the actual get profile response from the deserialized http response
-                    getProfileResponse = getProfileResponseSuccess?.data;
-                }
-            }
-
-            // If response object was not filled it means there was an error
-            if (getProfileResponseSuccess?.data == null || getProfileResponseSuccess?.code != 200)
-            {
-                throw new Exception($"Failed to get Entity Profile: code: {getProfileResponseSuccess?.code}");
-            }
-
-            // Find the Title Entity Token and attach to outbound request to target function
-            string titleEntityToken = null;
-
-            var titleEntityTokenRequest = new AuthenticationModels.GetEntityTokenRequest();
-
-            var getEntityTokenUrl = GetServerApiUri("/Authentication/GetEntityToken");
-
-            var secretKey = Environment.GetEnvironmentVariable(DEV_SECRET_KEY, EnvironmentVariableTarget.Process);
-            var titleEntityTokenRequestContent = new StringContent(PlayFabSimpleJson.SerializeObject(titleEntityTokenRequest));
-            titleEntityTokenRequestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-            titleEntityTokenRequestContent.Headers.Add("X-SecretKey", secretKey);
-
-            PlayFabJsonSuccess<AuthenticationModels.GetEntityTokenResponse> titleEntityTokenResponseSuccess = null;
-            AuthenticationModels.GetEntityTokenResponse titleEntityTokenResponse = null;
-
-            using (var titleEntityTokenResponseMessage =
-                await httpClient.PostAsync(getEntityTokenUrl, titleEntityTokenRequestContent))
-            {
-                using (var titleEntityTokenResponseContent = titleEntityTokenResponseMessage.Content)
-                {
-                    string titleEntityTokenResponseString = await titleEntityTokenResponseContent.ReadAsStringAsync();
-
-                    // Deserialize the http response
-                    titleEntityTokenResponseSuccess =
-                        PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<AuthenticationModels.GetEntityTokenResponse>>(titleEntityTokenResponseString);
-
-                    // Extract the actual get title entity token header
-                    titleEntityTokenResponse = titleEntityTokenResponseSuccess.data;
-                    titleEntityToken = titleEntityTokenResponse.EntityToken;
-                }
-            }
-
-            // Extract the request for the next stage from the get arguments response
+            // Create a FunctionContextInternal as the payload to send to the target function
             var functionContext = new FunctionContextInternal
             {
-                CallerEntityProfile = getProfileResponse.Profile,
+                CallerEntityProfile = await GetEntityProfile(callerEntityToken),
                 TitleAuthenticationContext = new TitleAuthenticationContext
                 {
                     Id = Environment.GetEnvironmentVariable(TITLE_ID, EnvironmentVariableTarget.Process),
-                    EntityToken = titleEntityToken
+                    EntityToken = await GetTitleEntityToken()
                 },
                 FunctionArgument = execRequest.FunctionParameter
-            };
-
-            // Assemble the target function's path in the current App
-            string routePrefix = GetHostRoutePrefix();
-            string functionPath = routePrefix != null ? routePrefix + "/" + execRequest.FunctionName
-                : execRequest.FunctionName;
-
-            // Build URI of Azure Function based on current host
-            var uriBuilder = new UriBuilder
-            {
-                Host = request.Host.Host,
-                Port = request.Host.Port ?? 80,
-                Path = functionPath
             };
 
             // Serialize the request to the azure function and add headers
             var functionRequestContent = new StringContent(PlayFabSimpleJson.SerializeObject(functionContext));
             functionRequestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
+            var azureFunctionUri = ConstructLocalAzureFunctionUri(execRequest.FunctionName, request.Host);
+
             var sw = new Stopwatch();
             sw.Start();
 
             // Execute the local azure function
             using (var functionResponseMessage =
-                await httpClient.PostAsync(uriBuilder.Uri.AbsoluteUri, functionRequestContent))
+                await httpClient.PostAsync(azureFunctionUri, functionRequestContent))
             {
                 sw.Stop();
                 long executionTime = sw.ElapsedMilliseconds;
@@ -189,6 +110,120 @@ namespace PlayFab.AzureFunctions
             }
         }
 
+        /// <summary>
+        /// Fetch's an entity's profile from the PlayFab server
+        /// </summary>
+        /// <param name="callerEntityToken">The entity token of the entity profile being fetched</param>
+        /// <returns>The entity's profile</returns>
+        private static async Task<EntityProfileBody> GetEntityProfile(string callerEntityToken) {
+            // Construct the PlayFabAPI URL for GetEntityProfile
+            var getProfileUrl = GetServerApiUri("/Profile/GetProfile");
+
+            // Create the get entity profile request
+            var profileRequest = new GetEntityProfileRequest { };
+
+            // Prepare the request headers
+            var profileRequestContent = new StringContent(PlayFabSimpleJson.SerializeObject(profileRequest));
+            profileRequestContent.Headers.Add("X-EntityToken", callerEntityToken);
+            profileRequestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+            PlayFabJsonSuccess<GetEntityProfileResponse> getProfileResponseSuccess = null;
+            GetEntityProfileResponse getProfileResponse = null;
+
+            // Execute the get entity profile request
+            using (var profileResponseMessage =
+                    await httpClient.PostAsync(getProfileUrl, profileRequestContent))
+            {
+                using (var profileResponseContent = profileResponseMessage.Content)
+                {
+                    string profileResponseString = await profileResponseContent.ReadAsStringAsync();
+
+                    // Deserialize the http response
+                    getProfileResponseSuccess =
+                        PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<GetEntityProfileResponse>>(profileResponseString);
+
+                    // Extract the actual get profile response from the deserialized http response
+                    getProfileResponse = getProfileResponseSuccess?.data;
+                }
+            }
+
+            // If response object was not filled it means there was an error
+            if (getProfileResponseSuccess?.data == null || getProfileResponseSuccess?.code != 200)
+            {
+                throw new Exception($"Failed to get Entity Profile: code: {getProfileResponseSuccess?.code}");
+            }
+
+            return getProfileResponse.Profile;
+        }
+
+        /// <summary>
+        /// Grabs the developer secret key from the environment variable (expected to be set) and uses it to
+        /// ask the PlayFab server for a title entity token.
+        /// </summary>
+        /// <returns>The title's entity token</returns>
+        private static async Task<string> GetTitleEntityToken()
+        {
+            var titleEntityTokenRequest = new AuthenticationModels.GetEntityTokenRequest();
+
+            var getEntityTokenUrl = GetServerApiUri("/Authentication/GetEntityToken");
+
+            // Grab the developer secret key from the environment variables (app settings) to use as header for GetEntityToken
+            var secretKey = Environment.GetEnvironmentVariable(DEV_SECRET_KEY, EnvironmentVariableTarget.Process);
+
+            if (string.IsNullOrEmpty(secretKey))
+            {
+                // Environment variable was not set on the app
+                throw new Exception("Could not fetch the developer secret key from the environment. Please set \"PLAYFAB_DEV_SECRET_KEY\" in your app's local.settings.json file.");
+            }
+
+            var titleEntityTokenRequestContent = new StringContent(PlayFabSimpleJson.SerializeObject(titleEntityTokenRequest));
+            titleEntityTokenRequestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            titleEntityTokenRequestContent.Headers.Add("X-SecretKey", secretKey);
+
+            using (var titleEntityTokenResponseMessage =
+                await httpClient.PostAsync(getEntityTokenUrl, titleEntityTokenRequestContent))
+            {
+                using (var titleEntityTokenResponseContent = titleEntityTokenResponseMessage.Content)
+                {
+                    string titleEntityTokenResponseString = await titleEntityTokenResponseContent.ReadAsStringAsync();
+
+                    // Deserialize the http response
+                    var titleEntityTokenResponseSuccess =
+                        PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<AuthenticationModels.GetEntityTokenResponse>>(titleEntityTokenResponseString);
+
+                    // Extract the actual get title entity token header
+                    var titleEntityTokenResponse = titleEntityTokenResponseSuccess.data;
+
+                    return titleEntityTokenResponse.EntityToken;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Constructs a function's local url given its name and the current function app's host. Assumes that the
+        /// function is located in the same function app as the application host provided.
+        /// </summary>
+        /// <param name="functionName">The name of the function to construct a URL for</param>
+        /// <param name="appHost">The function's application host</param>
+        /// <returns>The function's URI</returns>
+        private static string ConstructLocalAzureFunctionUri(string functionName, HostString appHost)
+        {
+            // Assemble the target function's path in the current App
+            string routePrefix = GetHostRoutePrefix();
+            string functionPath = routePrefix != null ? routePrefix + "/" + functionName
+                : functionName;
+
+            // Build URI of Azure Function based on current host
+            var uriBuilder = new UriBuilder
+            {
+                Host = appHost.Host,
+                Port = appHost.Port ?? 80,
+                Path = functionPath
+            };
+
+            return uriBuilder.Uri.AbsoluteUri;
+        }
+
         private static async Task<object> ExtractFunctionResult(HttpContent content)
         {
             string responseContent = await content.ReadAsStringAsync();
@@ -219,6 +254,7 @@ namespace PlayFab.AzureFunctions
             return null;
         }
 
+
         private static string GetServerApiUri(string endpoint)
         {
             var sb = new StringBuilder();
@@ -248,6 +284,7 @@ namespace PlayFab.AzureFunctions
             return uriBuilder.Uri.AbsoluteUri;
         }
 
+        #region Utility Functions
         private static string ReadAllFileText(string filename)
         {
             var sb = new StringBuilder();
@@ -387,8 +424,10 @@ namespace PlayFab.AzureFunctions
                 return output.ToArray();
             }
         }
+        #endregion
     }
 
+    #region Models
     public class TitleAuthenticationContext
     {
         public string Id;
@@ -440,4 +479,5 @@ namespace PlayFab.AzureFunctions
             public string routePrefix { get; set; }
         }
     }
+    #endregion
 }
