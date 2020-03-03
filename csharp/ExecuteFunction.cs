@@ -1,37 +1,37 @@
 ﻿// Copyright (C) Microsoft Corporation. All rights reserved.
 
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.IO.Compression;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.Extensions.Logging;
-using PlayFab.Internal;
-using PlayFab.Json;
-using PlayFab.ProfilesModels;
-
 namespace PlayFab.AzureFunctions
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Diagnostics;
+    using System.IO;
+    using System.IO.Compression;
+    using System.Linq;
+    using System.Net;
+    using System.Net.Http;
+    using System.Net.Http.Headers;
+    using System.Text;
+    using System.Threading.Tasks;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Azure.WebJobs;
+    using Microsoft.Azure.WebJobs.Extensions.Http;
+    using Microsoft.Extensions.Logging;
+    using PlayFab.Internal;
+    using PlayFab.Json;
+    using PlayFab.ProfilesModels;
+
     public static class LocalExecuteFunction
     {
         private const string DEV_SECRET_KEY = "PLAYFAB_DEV_SECRET_KEY";
         private const string TITLE_ID = "PLAYFAB_TITLE_ID";
         private const string CLOUD_NAME = "PLAYFAB_CLOUD_NAME";
         private static readonly HttpClient httpClient = new HttpClient();
+
         /// <summary>
         /// A local implementation of the ExecuteFunction feature. Provides the ability to execute an Azure Function with a local URL with respect to the host
         /// of the application this function is running in.
         /// </summary>
-        /// <param name="functionRequest">The execution request</param>
         /// <param name="httpRequest">The HTTP request</param>
         /// <param name="log">A logger object</param>
         /// <returns>The function execution result(s)</returns>
@@ -87,7 +87,7 @@ namespace PlayFab.AzureFunctions
                     {
                         FunctionName = execRequest.FunctionName,
                         FunctionResult = await ExtractFunctionResult(functionResponseContent),
-                        ExecutionTimeMilliseconds = (int) executionTime,
+                        ExecutionTimeMilliseconds = (int)executionTime,
                         FunctionResultTooLarge = false
                     };
 
@@ -115,7 +115,8 @@ namespace PlayFab.AzureFunctions
         /// </summary>
         /// <param name="callerEntityToken">The entity token of the entity profile being fetched</param>
         /// <returns>The entity's profile</returns>
-        private static async Task<EntityProfileBody> GetEntityProfile(string callerEntityToken) {
+        private static async Task<EntityProfileBody> GetEntityProfile(string callerEntityToken)
+        {
             // Construct the PlayFabAPI URL for GetEntityProfile
             var getProfileUrl = GetServerApiUri("/Profile/GetProfile");
 
@@ -354,7 +355,7 @@ namespace PlayFab.AzureFunctions
             {
                 using (var gZipStream = new GZipStream(responseStream, CompressionMode.Decompress, false))
                 {
-                    byte[] buffer = new byte[4*1024];
+                    byte[] buffer = new byte[4 * 1024];
                     using (var output = new MemoryStream())
                     {
                         int read;
@@ -413,7 +414,7 @@ namespace PlayFab.AzureFunctions
         private static byte[] StreamToBytes(Stream input)
         {
             input.Seek(0, SeekOrigin.Begin);
-            byte[] buffer = new byte[4*1024];
+            byte[] buffer = new byte[4 * 1024];
             using (var output = new MemoryStream())
             {
                 int read;
