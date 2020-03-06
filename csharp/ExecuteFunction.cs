@@ -26,6 +26,7 @@ namespace PlayFab.AzureFunctions
         private const string DEV_SECRET_KEY = "PLAYFAB_DEV_SECRET_KEY";
         private const string TITLE_ID = "PLAYFAB_TITLE_ID";
         private const string CLOUD_NAME = "PLAYFAB_CLOUD_NAME";
+        private const string _defaultRoutePrefix = "api";
         private static readonly HttpClient httpClient = new HttpClient();
 
         /// <summary>
@@ -327,8 +328,7 @@ namespace PlayFab.AzureFunctions
             }
 
             var hostModel = PlayFabSimpleJson.DeserializeObject<HostJsonModel>(hostFileContent);
-
-            return hostModel?.extensions?.http?.routePrefix;
+            return hostModel?.extensions?.http?.routePrefix ?? _defaultRoutePrefix;
         }
 
         private static async Task<string> DecompressHttpBody(HttpRequest request)
