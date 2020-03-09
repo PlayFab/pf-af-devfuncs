@@ -68,3 +68,18 @@ The above is supported in the following SDKs;
 * [PlayFab C# SDK](https://github.com/PlayFab/CSharpSDK)
 * [PlayFab Unity SDK](https://github.com/PlayFab/UnitySDK)
 * [Unreal 4 Marketplace PlugIn for PlayFab](https://github.com/PlayFab/UnrealMarketplacePlugin)
+
+## Custom route prefixes
+
+If you use a custom route prefix in your host.json, you will need to change the /api/ part of the file content to match the custom route prefix specified in the host.json. For example, if your host.json specifies a route prefix
+of 'cs', then your playfab.local.settings.json should be as follows;
+
+```
+{ "LocalApiServer": "http://localhost:7071/cs/" }
+```
+
+If your host.json specifies an empty custom route prefix, then your playfab.local.settings.jsoon should be as follows;
+
+```
+{ "LocalApiServer": "http://localhost:7071/" }
+```
