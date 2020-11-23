@@ -46,11 +46,21 @@ namespace PlayFab.AzureFunctions
             // Extract the request body and deserialize
             string body = await DecompressHttpBody(request);
             var execRequest = PlayFabSimpleJson.DeserializeObject<ExecuteFunctionRequest>(body);
+            EntityKey entityKey = null;
+
+            if (execRequest.Entity != null)
+            {
+                entityKey = new EntityKey
+                {
+                    Id = execRequest.Entity?.Id,
+                    Type = execRequest.Entity?.Type
+                };
+            }
 
             // Create a FunctionContextInternal as the payload to send to the target function
             var functionContext = new FunctionContextInternal
             {
-                CallerEntityProfile = await GetEntityProfile(callerEntityToken),
+                CallerEntityProfile = await GetEntityProfile(callerEntityToken, entityKey),
                 TitleAuthenticationContext = new TitleAuthenticationContext
                 {
                     Id = Environment.GetEnvironmentVariable(TITLE_ID, EnvironmentVariableTarget.Process),
@@ -116,13 +126,16 @@ namespace PlayFab.AzureFunctions
         /// </summary>
         /// <param name="callerEntityToken">The entity token of the entity profile being fetched</param>
         /// <returns>The entity's profile</returns>
-        private static async Task<EntityProfileBody> GetEntityProfile(string callerEntityToken)
+        private static async Task<EntityProfileBody> GetEntityProfile(string callerEntityToken, EntityKey entity)
         {
             // Construct the PlayFabAPI URL for GetEntityProfile
             var getProfileUrl = GetServerApiUri("/Profile/GetProfile");
 
             // Create the get entity profile request
-            var profileRequest = new GetEntityProfileRequest { };
+            var profileRequest = new GetEntityProfileRequest
+            {
+                Entity = entity
+            };
 
             // Prepare the request headers
             var profileRequestContent = new StringContent(PlayFabSimpleJson.SerializeObject(profileRequest));
