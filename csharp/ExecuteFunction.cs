@@ -1,4 +1,4 @@
-﻿// Copyright (C) Microsoft Corporation. All rights reserved.
+// Copyright (C) Microsoft Corporation. All rights reserved.
 
 namespace PlayFab.AzureFunctions
 {
@@ -114,7 +114,7 @@ namespace PlayFab.AzureFunctions
 
                     return new HttpResponseMessage
                     {
-                        Content = new ByteArrayContent(CompressResponseBody(output, request)),
+                        Content = CompressResponseBody(output, request),
                         StatusCode = HttpStatusCode.OK
                     };
                 }
@@ -383,7 +383,7 @@ namespace PlayFab.AzureFunctions
             }
         }
 
-        private static byte[] CompressResponseBody(object responseObject, HttpRequest request)
+        private static HttpContent CompressResponseBody(object responseObject, HttpRequest request)
         {
             string responseJson = PlayFabSimpleJson.SerializeObject(responseObject);
             var responseBytes = Encoding.UTF8.GetBytes(responseJson);
@@ -394,7 +394,7 @@ namespace PlayFab.AzureFunctions
             // If client doesn't specify accepted encodings, assume identity and respond decompressed
             if (string.IsNullOrEmpty(encodingsString))
             {
-                return responseBytes;
+                return new ByteArrayContent(responseBytes);
             }
 
             List<string> encodings = encodingsString.Replace(" ", String.Empty).Split(',').ToList();
@@ -403,7 +403,7 @@ namespace PlayFab.AzureFunctions
             // If client accepts identity explicitly, respond decompressed
             if (encodings.Contains("identity", StringComparer.OrdinalIgnoreCase))
             {
-                return responseBytes;
+                return new ByteArrayContent(responseBytes);
             }
 
             // If client accepts gzip, compress
@@ -417,7 +417,9 @@ namespace PlayFab.AzureFunctions
                     }
                     responseBytes = stream.ToArray();
                 }
-                return responseBytes;
+                var content = new ByteArrayContent(responseBytes);
+                content.Headers.ContentEncoding.Add("gzip");
+                return content;
             }
 
             // If neither identity or gzip, throw error: we support gzip only right now
