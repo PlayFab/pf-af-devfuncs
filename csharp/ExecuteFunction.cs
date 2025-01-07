@@ -24,7 +24,7 @@ namespace PlayFab.AzureFunctions
         }
 
         private const string DEV_SECRET_KEY = "PLAYFAB_DEV_SECRET_KEY";
-        private const string TITLE_ID_KEY = "PLAYFAB_TITLE_ID";
+        private const string TITLE_ID_KEY = "PLAYFAB_TITLE_ID_KEY";
         private const string CLOUD_NAME = "PLAYFAB_CLOUD_NAME";
         private const string _defaultRoutePrefix = "api";
         private static readonly HttpClient httpClient = new HttpClient();
