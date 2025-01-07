@@ -2,29 +2,29 @@
 
 namespace PlayFab.AzureFunctions
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Diagnostics;
-    using System.IO;
-    using System.IO.Compression;
-    using System.Linq;
-    using System.Net;
-    using System.Net.Http;
-    using System.Net.Http.Headers;
-    using System.Text;
-    using System.Threading.Tasks;
     using Microsoft.AspNetCore.Http;
-    using Microsoft.Azure.WebJobs;
-    using Microsoft.Azure.WebJobs.Extensions.Http;
+    using Microsoft.Azure.Functions.Worker;
     using Microsoft.Extensions.Logging;
     using PlayFab.Internal;
     using PlayFab.Json;
     using PlayFab.ProfilesModels;
+    using System.Diagnostics;
+    using System.IO.Compression;
+    using System.Net;
+    using System.Net.Http.Headers;
+    using System.Text;
 
     public static class LocalExecuteFunction
     {
+        private readonly ILogger<LocalExecuteFunction> _logger;
+
+        public LocalExecuteFunction(ILogger<LocalExecuteFunction> logger)
+        {
+            _logger = logger;
+        }
+
         private const string DEV_SECRET_KEY = "PLAYFAB_DEV_SECRET_KEY";
-        private const string TITLE_ID = "PLAYFAB_TITLE_ID";
+        private const string TITLE_ID_KEY = "PLAYFAB_TITLE_ID_KEY";
         private const string CLOUD_NAME = "PLAYFAB_CLOUD_NAME";
         private const string _defaultRoutePrefix = "api";
         private static readonly HttpClient httpClient = new HttpClient();
@@ -34,11 +34,10 @@ namespace PlayFab.AzureFunctions
         /// of the application this function is running in.
         /// </summary>
         /// <param name="httpRequest">The HTTP request</param>
-        /// <param name="log">A logger object</param>
         /// <returns>The function execution result(s)</returns>
-        [FunctionName("ExecuteFunction")]
-        public static async Task<HttpResponseMessage> ExecuteFunction(
-            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "CloudScript/ExecuteFunction")] HttpRequest request, ILogger log)
+        [Function("ExecuteFunction")]
+        public async Task<HttpResponseMessage> ExecuteFunction(
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "CloudScript/ExecuteFunction")] HttpRequest request)
         {
             // Extract the caller's entity token
             string callerEntityToken = request.Headers["X-EntityToken"];
@@ -63,7 +62,7 @@ namespace PlayFab.AzureFunctions
                 CallerEntityProfile = await GetEntityProfile(callerEntityToken, entityKey),
                 TitleAuthenticationContext = new TitleAuthenticationContext
                 {
-                    Id = Environment.GetEnvironmentVariable(TITLE_ID, EnvironmentVariableTarget.Process),
+                    Id = Environment.GetEnvironmentVariable(TITLE_ID_KEY, EnvironmentVariableTarget.Process),
                     EntityToken = await GetTitleEntityToken()
                 },
                 FunctionArgument = execRequest.FunctionParameter
@@ -178,7 +177,7 @@ namespace PlayFab.AzureFunctions
         /// <returns>The title's entity token</returns>
         private static async Task<string> GetTitleEntityToken()
         {
-            var titleEntityTokenRequest = new AuthenticationModels.GetEntityTokenRequest();
+            var titleEntityTokenRequest = new PlayFab.AuthenticationModels.GetEntityTokenRequest();
 
             var getEntityTokenUrl = GetServerApiUri("/Authentication/GetEntityToken");
 
@@ -194,7 +193,6 @@ namespace PlayFab.AzureFunctions
             var titleEntityTokenRequestContent = new StringContent(PlayFabSimpleJson.SerializeObject(titleEntityTokenRequest));
             titleEntityTokenRequestContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
             titleEntityTokenRequestContent.Headers.Add("X-SecretKey", secretKey);
-
             using (var titleEntityTokenResponseMessage =
                 await httpClient.PostAsync(getEntityTokenUrl, titleEntityTokenRequestContent))
             {
@@ -204,7 +202,7 @@ namespace PlayFab.AzureFunctions
 
                     // Deserialize the http response
                     var titleEntityTokenResponseSuccess =
-                        PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<AuthenticationModels.GetEntityTokenResponse>>(titleEntityTokenResponseString);
+                        PlayFabSimpleJson.DeserializeObject<PlayFabJsonSuccess<PlayFab.AuthenticationModels.GetEntityTokenResponse>>(titleEntityTokenResponseString);
 
                     // Extract the actual get title entity token header
                     var titleEntityTokenResponse = titleEntityTokenResponseSuccess.data;
@@ -275,7 +273,7 @@ namespace PlayFab.AzureFunctions
             var sb = new StringBuilder();
 
             // Append the title name if applicable
-            string title = Environment.GetEnvironmentVariable(TITLE_ID, EnvironmentVariableTarget.Process);
+            string title = Environment.GetEnvironmentVariable(TITLE_ID_KEY, EnvironmentVariableTarget.Process);
             if (!string.IsNullOrEmpty(title))
             {
                 sb.Append(title).Append(".");
@@ -463,7 +461,7 @@ namespace PlayFab.AzureFunctions
 
     public class ExecuteFunctionRequest : PlayFabRequestCommon
     {
-        public ClientModels.EntityKey Entity { get; set; }
+        public PlayFab.ClientModels.EntityKey Entity { get; set; }
 
         public string FunctionName { get; set; }
 
