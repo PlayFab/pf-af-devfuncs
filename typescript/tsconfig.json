@@ -1,0 +1,18 @@
+{
+  "include": [
+    "**/*.ts"
+  ],
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es6",
+    "outDir": "dist",
+    "rootDir": ".",
+    "sourceMap": true,
+    "strict": true,
+    "typeRoots": [
+      "./node_modules/@types"
+    ],
+    "esModuleInterop": true, /* Enables emit interoperability between CommonJS and ES Modules via creation of namespace objects for all imports. Implies 'allowSyntheticDefaultImports'. */
+    "resolveJsonModule": true
+  }
+}

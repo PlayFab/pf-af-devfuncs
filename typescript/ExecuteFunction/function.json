@@ -1,0 +1,18 @@
+{
+  "bindings": [
+    {
+      "authLevel": "function",
+      "type": "httpTrigger",
+      "route": "CloudScript/ExecuteFunction",
+      "direction": "in",
+      "name": "req",
+      "methods": ["get", "post"]
+    },
+    {
+      "type": "http",
+      "direction": "out",
+      "name": "res"
+    }
+  ],
+  "scriptFile": "../dist/ExecuteFunction/index.js"
+}
